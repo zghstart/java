@@ -40,7 +40,7 @@ spec:
                     leaderTemplate:
                       type: object
                       # 关键：这里不写任何子字段，让它变成结构化、可生成
-                      x-kubernetes-preserve-unknown-fields: false
+                      x-kubernetes-preserve-unknown-fields: true
                       properties: {}
                       additionalProperties: false
                     workerTemplate:
