@@ -36,7 +36,7 @@ spec:
                     restartPolicy:
                       type: string
                       enum: [RecreateGroupOnPodRestart, RollingUpdate]
-                      default: RecreateGroupOn
+                      default: RecreateGroupOnPodRestart
                     leaderTemplate:
                       type: object
                       # 关键：这里不写任何子字段，让它变成结构化、可生成
