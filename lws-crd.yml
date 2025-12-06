@@ -2,56 +2,160 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   name: leaderworkersets.leaderworkerset.x-k8s.io
+  annotations:
+    api-approved.kubernetes.io/approved: "https://github.com/kubernetes-sigs/lws/pull/145"
 spec:
   group: leaderworkerset.x-k8s.io
   names:
     kind: LeaderWorkerSet
+    listKind: LeaderWorkerSetList
     plural: leaderworkersets
-    shortNames: [lws]
     singular: leaderworkerset
+    shortNames:
+      - lws
   scope: Namespaced
   versions:
     - name: v1
       served: true
       storage: true
+      subresources:
+        status: {}
+        scale:
+          specReplicasPath: .spec.replicas
+          statusReplicasPath: .status.replicas
+          labelSelectorPath: .status.labelSelector
+      additionalPrinterColumns:
+        - name: Replicas
+          type: integer
+          description: Total number of groups
+          jsonPath: .spec.replicas
+        - name: Ready
+          type: integer
+          description: Number of ready groups
+          jsonPath: .status.readyReplicas
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
       schema:
         openAPIV3Schema:
           type: object
           properties:
             spec:
               type: object
-              required: [leaderWorkerTemplate]
+              required:
+                - leaderWorkerTemplate
               properties:
                 replicas:
                   type: integer
-                  minimum: 1
-                  default: 1
+                  minimum: 0
+                  description: Number of desired groups (default 1)
                 leaderWorkerTemplate:
                   type: object
-                  required: [size, leaderTemplate, workerTemplate]
+                  required:
+                    - size
+                    - leaderTemplate
                   properties:
                     size:
                       type: integer
-                      minimum: 0
+                      minimum: 1
+                      description: Number of pods per group (leader + workers)
+                    leaderTemplate:
+                      description: Pod template for the leader pod
+                      x-kubernetes-preserve-unknown-fields: true
+                      type: object
+                      properties:
+                        metadata:
+                          type: object
+                        spec:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
+                    workerTemplate:
+                      description: Pod template for worker pods (optional, can reuse leaderTemplate)
+                      x-kubernetes-preserve-unknown-fields: true
+                      type: object
+                      properties:
+                        metadata:
+                          type: object
+                        spec:
+                          type: object
+                          x-kubernetes-preserve-unknown-fields: true
                     restartPolicy:
                       type: string
-                      enum: [RecreateGroupOnPodRestart, RollingUpdate]
+                      enum:
+                        - RecreateGroupOnPodRestart
+                        - RollingRestartGroupOnPodRestart
                       default: RecreateGroupOnPodRestart
-                    leaderTemplate:
+                      description: Restart behavior when any pod in the group fails
+                    volumeClaimTemplates:
+                      type: array
+                      items:
+                        $ref: "https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.30/#persistentvolumeclaim-v1-core"
+                rolloutStrategy:
+                  type: object
+                  properties:
+                    type:
+                      type: string
+                      enum:
+                        - RollingUpdate
+                      default: RollingUpdate
+                    rollingUpdateConfiguration:
                       type: object
-                      # 关键：这里不写任何子字段，让它变成结构化、可生成
-                      x-kubernetes-preserve-unknown-fields: true
-                      properties: {}
-                      additionalProperties: false
-                    workerTemplate:
-                      type: object
-                      # 关键：workerTemplate 整个是 PodTemplateSpec，直接放行
-                      x-kubernetes-preserve-unknown-fields: true   # 只留这一个！
+                      properties:
+                        maxSurge:
+                          x-kubernetes-int-or-string: true
+                          description: Maximum number of groups that can be created above desired replicas
+                          default: "25%"
+                        maxUnavailable:
+                          x-kubernetes-int-or-string: true
+                          description: Maximum number of groups that can be unavailable during update
+                          default: 0
+                        partition:
+                          type: integer
+                          minimum: 0
+                          description: Groups with index >= partition will be updated
+                startupPolicy:
+                  type: string
+                  enum:
+                    - LeaderCreated
+                    - AllWorkersCreated
+                  default: LeaderCreated
+                  description: When workers start relative to leader creation
+                networkConfig:
+                  type: object
+                  properties:
+                    subdomainPolicy:
+                      type: string
+                      enum:
+                        - Shared
+                        - Unique
+                      default: Shared
+                      description: Headless service subdomain policy for group pods
             status:
               type: object
-              x-kubernetes-preserve-unknown-fields: true
-      subresources:
-        scale:
-          specReplicasPath: .spec.replicas
-          statusReplicasPath: .status.replicas
-        status: {}
+              properties:
+                replicas:
+                  type: integer
+                readyReplicas:
+                  type: integer
+                updatedReplicas:
+                  type: integer
+                hpaPodSelector:
+                  type: string
+                  description: Label selector used by HPA to target worker pods (worker-index=0)
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum: ["True", "False", "Unknown"]
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
